@@ -62,12 +62,14 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
     router = Router()
     memo_text = (
         "Как проверить текст\n\n"
-        "<b>1. Прочитать текст и оставить комментарии</b>\n"
-        "Текст переписывать не нужно. Вот пример комментария.\n\n"
-        "<b>2. Проверить только медицинские факты, не стиль</b>\n"
+        "<b>1. Проверяем только факты, но не стиль</b>\n"
         "Стиль сильно упрощён под пациентские запросы в поисковиках, это важно для продвижения.\n\n"
+        "<b>2. Прочитать текст и оставить комментарии</b>\n"
+        "Текст переписывать не нужно. Чтобы оставить комментарий к разделу, просто отправьте сообщение. "
+        "Можно выделить часть текста и отвечать реплаем: так комментарий уйдет с нужным куском текста. "
+        "Можно записать голосовое сообщение\n\n"
         "<b>3. Проверить продуктовый блок</b>\n"
-        "Он выделен рамкой. В нём указаны сильные стороны нашей клиники: если есть, что добавить — это очень нам поможет. "
+        "В документе он выделен рамкой. В нём указаны сильные стороны нашей клиники: если есть, что добавить — это очень нам поможет. "
         "Например, информацию про оборудование, процедуры, которые выгодно выделяют нас на фоне других клиник.\n\n"
         "<b>Если нет времени читать или много замечаний</b>\n"
         "Свяжитесь с редактором:\n"
@@ -94,6 +96,55 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
         lines.append("Ссылка на документ:")
         lines.append(document_url)
         await sender("\n".join(lines))
+
+    async def forward_voice_comment(
+        message: Message,
+        section_title_override: str | None = None,
+    ) -> str:
+        doctor = storage.get_doctor(message.from_user.id)
+        session = storage.get_session(message.from_user.id)
+        if doctor is None or session is None:
+            await message.answer("Сначала выберите врача и статью.")
+            return "missing_context"
+
+        task = repository.get_task_by_row(doctor.doctor_name, session.sheet_row_number)
+        if task is None:
+            await message.answer("Не удалось найти актуальную статью. Обновите список и выберите её заново.")
+            return "missing_task"
+
+        if section_title_override is None:
+            document = repository.get_document(session.document_url)
+            current_index = max(0, min(session.current_section_index, len(document.sections) - 1))
+            section_title = document.sections[current_index].title
+        else:
+            section_title = section_title_override
+
+        report_chat = storage.get_report_chat()
+        if report_chat is None:
+            await message.answer(
+                "Голосовой комментарий пока некуда переслать. "
+                f"Нужно сначала зарегистрировать чат {settings.report_recipient_label} через /register_report_chat."
+            )
+            return "missing_report_chat"
+
+        context_text = (
+            "Голосовой комментарий от врача\n"
+            f"Врач: {doctor.doctor_name}\n"
+            f"Тема: {task.topic or session.article_title}\n"
+            f"Раздел: {section_title}\n"
+            f"Документ: {session.document_url}"
+        )
+
+        try:
+            await message.bot.send_message(report_chat.chat_id, context_text)
+            await message.bot.copy_message(report_chat.chat_id, message.chat.id, message.message_id)
+        except Exception:
+            logger.exception("Failed to forward voice comment")
+            await message.answer("Не удалось переслать голосовой комментарий редактору. Попробуйте ещё раз чуть позже.")
+            return "forward_failed"
+
+        await message.answer("Голосовой комментарий отправлен редактору.")
+        return "ok"
 
     def format_report_text(
         doctor_name: str,
@@ -198,10 +249,6 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
             f"Тема: {task.topic}\n"
             "\n"
             f"Структура:\n{outline}"
-        )
-        text += (
-            "\n\nЧтобы оставить комментарий, отправьте сообщение. Можно выделять текст и отвечать реплаем: "
-            "так комментарий уйдёт с нужным куском текста."
         )
 
         sender = target.message.answer if isinstance(target, CallbackQuery) else target.answer
@@ -329,7 +376,9 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
 
         await state.set_state(BotStates.waiting_surname)
         await message.answer(
-            "Здравствуйте! Бот помогает проверять публикации для сайта «Хадассы».\n\nВведите Вашу фамилию",
+            "Здравствуйте! Этот бот помогает проверить публикации для сайта нашей клиники. "
+            "Если бот плохо или неудобно работает, напишите @zykovsrg.\n\n"
+            "Введите Вашу фамилию:",
             reply_markup=main_menu_keyboard(),
         )
 
@@ -679,6 +728,12 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
             return
         await persist_comment(message, state, message.text)
 
+    @router.message(BotStates.viewing_section, F.voice)
+    async def handle_voice_section_comment(message: Message, state: FSMContext) -> None:
+        result = await forward_voice_comment(message)
+        if result == "ok":
+            await state.set_state(BotStates.viewing_section)
+
     @router.message(BotStates.viewing_section)
     async def handle_inline_comment(message: Message, state: FSMContext) -> None:
         text = (message.text or "").strip()
@@ -686,6 +741,12 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
             await message.answer("Если хотите оставить комментарий, отправьте его текстом.")
             return
         await persist_comment(message, state, text)
+
+    @router.message(BotStates.viewing_illustrations, F.voice)
+    async def handle_voice_illustrations_comment(message: Message, state: FSMContext) -> None:
+        result = await forward_voice_comment(message, section_title_override="Иллюстрации")
+        if result == "ok":
+            await state.set_state(BotStates.viewing_illustrations)
 
     @router.message(BotStates.viewing_illustrations)
     async def handle_illustrations_comment(message: Message, state: FSMContext) -> None:

@@ -35,8 +35,8 @@ def tasks_keyboard(tasks: list[ArticleTask]) -> InlineKeyboardMarkup:
 def outline_keyboard(row_number: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Начать проверку", callback_data=f"start:{row_number}")
+    builder.button(text="Как быстро проверить текст", callback_data=f"memo:{row_number}")
     builder.button(text="Ссылка на документ", callback_data=f"doclink:{row_number}")
-    builder.button(text="Памятка по проверке", callback_data=f"memo:{row_number}")
     builder.button(text="К списку статей", callback_data="dashboard")
     builder.adjust(1)
     return builder.as_markup()
