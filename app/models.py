@@ -100,3 +100,12 @@ class CompletedReview:
     review_started_at: str
     final_status: str
     completed_at: str
+
+
+@dataclass(slots=True, frozen=True)
+class ReminderRecord:
+    id: int
+    telegram_user_id: int
+    doctor_name: str
+    due_at: str
+    label: str

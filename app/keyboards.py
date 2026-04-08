@@ -28,6 +28,7 @@ def tasks_keyboard(tasks: list[ArticleTask]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for task in tasks:
         builder.button(text=task.topic[:64], callback_data=f"article:{task.row_number}")
+    builder.button(text="Напомнить о проверке", callback_data="remind_menu")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -37,6 +38,25 @@ def outline_keyboard(row_number: int) -> InlineKeyboardMarkup:
     builder.button(text="Начать проверку", callback_data=f"start:{row_number}")
     builder.button(text="Как быстро проверить текст", callback_data=f"memo:{row_number}")
     builder.button(text="Ссылка на документ", callback_data=f"doclink:{row_number}")
+    builder.button(text="К списку статей", callback_data="dashboard")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def reminder_options_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Через 1 час", callback_data="remind_set:1h")
+    builder.button(text="Через 3 часа", callback_data="remind_set:3h")
+    builder.button(text="Через 6 часов", callback_data="remind_set:6h")
+    builder.button(text="Завтра в 8:00", callback_data="remind_set:tomorrow8")
+    builder.button(text="К списку статей", callback_data="dashboard")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def reminder_only_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Напомнить о проверке", callback_data="remind_menu")
     builder.button(text="К списку статей", callback_data="dashboard")
     builder.adjust(1)
     return builder.as_markup()

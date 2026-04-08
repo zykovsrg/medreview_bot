@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.models import CommentRecord, CompletedReview, ReportChat, ReviewSession, StoredDoctor
+from app.models import CommentRecord, CompletedReview, ReminderRecord, ReportChat, ReviewSession, StoredDoctor
 
 
 class Storage:
@@ -74,6 +74,17 @@ class Storage:
                     review_started_at TEXT NOT NULL,
                     final_status TEXT NOT NULL,
                     completed_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS review_reminders (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    telegram_user_id INTEGER NOT NULL,
+                    doctor_name TEXT NOT NULL,
+                    due_at TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
                 );
                 """
             )
@@ -302,6 +313,81 @@ class Storage:
                 (telegram_user_id, sheet_row_number, review_started_at),
             ).fetchall()
         return rows
+
+    def replace_pending_reminder(
+        self,
+        telegram_user_id: int,
+        doctor_name: str,
+        due_at: str,
+        label: str,
+    ) -> ReminderRecord:
+        timestamp = self._now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE review_reminders
+                SET status = 'cancelled', updated_at = ?
+                WHERE telegram_user_id = ? AND status = 'pending'
+                """,
+                (timestamp, telegram_user_id),
+            )
+            cursor = connection.execute(
+                """
+                INSERT INTO review_reminders (
+                    telegram_user_id,
+                    doctor_name,
+                    due_at,
+                    label,
+                    status,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, 'pending', ?, ?)
+                """,
+                (telegram_user_id, doctor_name, due_at, label, timestamp, timestamp),
+            )
+            reminder_id = int(cursor.lastrowid)
+
+        return ReminderRecord(
+            id=reminder_id,
+            telegram_user_id=telegram_user_id,
+            doctor_name=doctor_name,
+            due_at=due_at,
+            label=label,
+        )
+
+    def get_pending_reminders(self) -> list[ReminderRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, telegram_user_id, doctor_name, due_at, label
+                FROM review_reminders
+                WHERE status = 'pending'
+                ORDER BY due_at ASC
+                """
+            ).fetchall()
+
+        return [
+            ReminderRecord(
+                id=row["id"],
+                telegram_user_id=row["telegram_user_id"],
+                doctor_name=row["doctor_name"],
+                due_at=row["due_at"],
+                label=row["label"],
+            )
+            for row in rows
+        ]
+
+    def mark_reminder_sent(self, reminder_id: int) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE review_reminders
+                SET status = 'sent', updated_at = ?
+                WHERE id = ?
+                """,
+                (self._now(), reminder_id),
+            )
 
     def create_completed_review(
         self,

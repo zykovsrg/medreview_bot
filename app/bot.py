@@ -18,9 +18,11 @@ from app.keyboards import (
     illustrations_keyboard,
     main_menu_keyboard,
     outline_keyboard,
+    reminder_options_keyboard,
     review_keyboard,
     tasks_keyboard,
 )
+from app.reminders import ReminderService
 from app.models import CommentRecord, StoredDoctor, normalize_surname
 from app.storage import Storage
 
@@ -58,7 +60,7 @@ def split_long_text(text: str, limit: int = 3500) -> list[str]:
     return chunks
 
 
-def create_router(repository: GoogleRepository, storage: Storage, settings) -> Router:
+def create_router(repository: GoogleRepository, storage: Storage, settings, reminders: ReminderService) -> Router:
     router = Router()
     memo_text = (
         "Как проверить текст\n\n"
@@ -565,6 +567,37 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
     async def handle_review_memo(callback: CallbackQuery) -> None:
         await callback.answer()
         await callback.message.answer(memo_text, parse_mode="HTML")
+
+    @router.callback_query(F.data == "remind_menu")
+    async def handle_remind_menu(callback: CallbackQuery) -> None:
+        doctor = storage.get_doctor(callback.from_user.id)
+        if doctor is None:
+            await callback.answer("Сначала введите фамилию врача.", show_alert=True)
+            return
+        await callback.answer()
+        await callback.message.answer(
+            "Когда напомнить?",
+            reply_markup=reminder_options_keyboard(),
+        )
+
+    @router.callback_query(F.data.startswith("remind_set:"))
+    async def handle_remind_set(callback: CallbackQuery) -> None:
+        doctor = storage.get_doctor(callback.from_user.id)
+        if doctor is None:
+            await callback.answer("Сначала введите фамилию врача.", show_alert=True)
+            return
+
+        option = callback.data.split(":", maxsplit=1)[1]
+        label = reminders.describe_option(option)
+        due_at = reminders.calculate_due_at(option)
+        reminders.schedule_for_doctor(
+            telegram_user_id=callback.from_user.id,
+            doctor_name=doctor.doctor_name,
+            due_at=due_at,
+            label=label,
+        )
+        await callback.answer()
+        await callback.message.answer(f"Хорошо, напомню {label}.")
 
     @router.callback_query(F.data.startswith("illustrations:"))
     async def handle_illustrations(callback: CallbackQuery, state: FSMContext) -> None:

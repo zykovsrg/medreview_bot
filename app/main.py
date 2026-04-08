@@ -13,6 +13,7 @@ if __package__ in {None, ""}:
 from app.bot import create_router
 from app.config import load_settings
 from app.google_clients import GoogleRepository
+from app.reminders import ReminderService
 from app.storage import Storage
 
 
@@ -28,7 +29,9 @@ async def main() -> None:
 
     storage = Storage(settings.db_path)
     repository = GoogleRepository(settings)
-    dispatcher.include_router(create_router(repository, storage, settings))
+    reminders = ReminderService(storage, repository)
+    dispatcher.include_router(create_router(repository, storage, settings, reminders))
+    await reminders.start(bot)
 
     await dispatcher.start_polling(bot)
 
