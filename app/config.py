@@ -1,0 +1,110 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _parse_csv(value: str | None) -> tuple[str, ...]:
+    if not value:
+        return ()
+    return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
+def _require_env(name: str) -> str:
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Environment variable {name} is required.")
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class Settings:
+    google_access_mode: str
+    bot_token: str
+    report_recipient_label: str
+    spreadsheet_url: str
+    comments_spreadsheet_url: str | None
+    source_sheet_name: str
+    pending_status_value: str
+    pending_status_aliases: tuple[str, ...]
+    approved_status_value: str
+    db_path: Path
+    google_service_account_file: Path | None
+    google_service_account_json: str | None
+    apps_script_webapp_url: str | None
+    apps_script_secret: str | None
+    comments_sheet_name: str | None
+    excluded_section_titles: tuple[str, ...]
+    docs_cache_ttl_seconds: int
+    sheet_cache_ttl_seconds: int
+    log_level: str
+
+
+def load_settings() -> Settings:
+    load_dotenv()
+
+    db_path = Path(os.getenv("DB_PATH", "./data/medreview_bot.sqlite3")).expanduser()
+    if not db_path.is_absolute():
+        db_path = (BASE_DIR / db_path).resolve()
+
+    service_account_file = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
+    service_account_path = Path(service_account_file).expanduser() if service_account_file else None
+    google_service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip() or None
+    google_access_mode = os.getenv("GOOGLE_ACCESS_MODE", "").strip().lower()
+    apps_script_webapp_url = os.getenv("APPS_SCRIPT_WEBAPP_URL", "").strip() or None
+    apps_script_secret = os.getenv("APPS_SCRIPT_SECRET", "").strip() or None
+    pending_status_value = (
+        os.getenv("GOOGLE_PENDING_STATUS_VALUE", "").strip()
+        or os.getenv("GOOGLE_STATUS_VALUE", "").strip()
+        or "На проверке у врача"
+    )
+    pending_status_aliases = _parse_csv(os.getenv("GOOGLE_PENDING_STATUS_ALIASES", "Врач проверяет"))
+    if pending_status_value not in pending_status_aliases:
+        pending_status_aliases = (*pending_status_aliases, pending_status_value)
+
+    if not google_access_mode:
+        google_access_mode = "apps_script" if apps_script_webapp_url else "service_account"
+
+    settings = Settings(
+        google_access_mode=google_access_mode,
+        bot_token=_require_env("BOT_TOKEN"),
+        report_recipient_label=os.getenv("REPORT_RECIPIENT_LABEL", "@zykovsrg").strip() or "@zykovsrg",
+        spreadsheet_url=_require_env("GOOGLE_SPREADSHEET_URL"),
+        comments_spreadsheet_url=os.getenv("COMMENTS_SPREADSHEET_URL", "").strip() or None,
+        source_sheet_name=os.getenv("GOOGLE_SOURCE_SHEET_NAME", "Темы МКБ").strip(),
+        pending_status_value=pending_status_value,
+        pending_status_aliases=pending_status_aliases,
+        approved_status_value=os.getenv("GOOGLE_APPROVED_STATUS_VALUE", "Проверено врачом").strip(),
+        db_path=db_path,
+        google_service_account_file=service_account_path,
+        google_service_account_json=google_service_account_json,
+        apps_script_webapp_url=apps_script_webapp_url,
+        apps_script_secret=apps_script_secret,
+        comments_sheet_name=os.getenv("COMMENTS_SHEET_NAME", "").strip() or None,
+        excluded_section_titles=_parse_csv(os.getenv("EXCLUDED_SECTION_TITLES")),
+        docs_cache_ttl_seconds=int(os.getenv("DOCS_CACHE_TTL_SECONDS", "300")),
+        sheet_cache_ttl_seconds=int(os.getenv("SHEET_CACHE_TTL_SECONDS", "120")),
+        log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
+    )
+
+    if settings.google_access_mode == "apps_script":
+        if not settings.apps_script_webapp_url or not settings.apps_script_secret:
+            raise RuntimeError(
+                "Set APPS_SCRIPT_WEBAPP_URL and APPS_SCRIPT_SECRET for Apps Script access."
+            )
+        return settings
+
+    if settings.google_access_mode == "service_account":
+        if not settings.google_service_account_file and not settings.google_service_account_json:
+            raise RuntimeError(
+                "Set GOOGLE_SERVICE_ACCOUNT_FILE or GOOGLE_SERVICE_ACCOUNT_JSON to access Google Sheets and Docs."
+            )
+        return settings
+
+    raise RuntimeError("GOOGLE_ACCESS_MODE must be either 'apps_script' or 'service_account'.")

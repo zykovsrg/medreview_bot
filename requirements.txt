@@ -1,0 +1,5 @@
+aiogram>=3.7,<4.0
+google-api-python-client>=2.165.0,<3.0
+google-auth>=2.39.0,<3.0
+python-dotenv>=1.0.1,<2.0
+requests>=2.33.0,<3.0
