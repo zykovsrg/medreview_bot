@@ -455,7 +455,7 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
             return
         if not doctor_choices:
             await message.answer(
-                f"По этой фамилии не нашёл статей со статусом «{settings.pending_status_value}». Проверьте написание или попробуйте позже."
+                "Сейчас у Вас нет статей на проверку. Если это ошибка — напишите @zykovsrg"
             )
             return
 
