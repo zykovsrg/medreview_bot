@@ -60,6 +60,22 @@ def split_long_text(text: str, limit: int = 3500) -> list[str]:
 
 def create_router(repository: GoogleRepository, storage: Storage, settings) -> Router:
     router = Router()
+    memo_text = (
+        "Как проверить текст\n\n"
+        "<b>1. Прочитать текст и оставить комментарии</b>\n"
+        "Текст переписывать не нужно. Вот пример комментария.\n\n"
+        "<b>2. Проверить только медицинские факты, не стиль</b>\n"
+        "Стиль сильно упрощён под пациентские запросы в поисковиках, это важно для продвижения.\n\n"
+        "<b>3. Проверить продуктовый блок</b>\n"
+        "Он выделен рамкой. В нём указаны сильные стороны нашей клиники: если есть, что добавить — это очень нам поможет. "
+        "Например, информацию про оборудование, процедуры, которые выгодно выделяют нас на фоне других клиник.\n\n"
+        "<b>Если нет времени читать или много замечаний</b>\n"
+        "Свяжитесь с редактором:\n"
+        "Телеграм: @zykovsrg;\n"
+        "Макс и другие мессенджеры: +7 922 990-48-00;\n"
+        "почта: s.zykov@hadassah.moscow.\n"
+        "Договоримся о встрече и вместе пройдёмся по тексту."
+    )
 
     async def send_google_error(target: Message | CallbackQuery) -> None:
         text = (
@@ -305,7 +321,7 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
         doctor = storage.get_doctor(message.from_user.id)
         if doctor is not None:
             await message.answer(
-                "Вы уже привязаны к врачу. Ниже можно открыть список статей или сменить врача.",
+                "Вы уже ввели фамилию. Ниже можно посмотреть список статей или сменить аккаунт.",
                 reply_markup=main_menu_keyboard(),
             )
             await send_dashboard(message, doctor, state)
@@ -313,7 +329,7 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
 
         await state.set_state(BotStates.waiting_surname)
         await message.answer(
-            "Введите фамилию врача, чтобы показать статьи на проверке.",
+            "Здравствуйте! Бот помогает проверять публикации для сайта «Хадассы».\n\nВведите Вашу фамилию",
             reply_markup=main_menu_keyboard(),
         )
 
@@ -323,7 +339,7 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
         storage.set_report_chat(message.chat.id, label)
         await message.answer(f"Этот чат зарегистрирован для итоговых отчётов. Сейчас отчёты будут уходить сюда: {label}")
 
-    @router.message(F.text == "Сменить врача")
+    @router.message(F.text == "Сменить аккаунт")
     async def handle_change_doctor(message: Message, state: FSMContext) -> None:
         storage.clear_doctor(message.from_user.id)
         await state.set_state(BotStates.waiting_surname)
@@ -495,6 +511,11 @@ def create_router(repository: GoogleRepository, storage: Storage, settings) -> R
             return
         await callback.answer()
         await send_document_link(callback, task.document_url)
+
+    @router.callback_query(F.data.startswith("memo:"))
+    async def handle_review_memo(callback: CallbackQuery) -> None:
+        await callback.answer()
+        await callback.message.answer(memo_text, parse_mode="HTML")
 
     @router.callback_query(F.data.startswith("illustrations:"))
     async def handle_illustrations(callback: CallbackQuery, state: FSMContext) -> None:
