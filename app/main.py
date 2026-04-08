@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
+
+if __package__ in {None, ""}:
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from app.bot import create_router
 from app.config import load_settings
