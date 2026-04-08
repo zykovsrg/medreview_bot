@@ -99,8 +99,12 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
         lines.append(document_url)
         await sender("\n".join(lines))
 
-    async def forward_voice_comment(
+    async def forward_media_comment(
         message: Message,
+        media_label: str,
+        success_text: str,
+        missing_chat_text: str,
+        forward_error_text: str,
         section_title_override: str | None = None,
     ) -> str:
         doctor = storage.get_doctor(message.from_user.id)
@@ -124,13 +128,13 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
         report_chat = storage.get_report_chat()
         if report_chat is None:
             await message.answer(
-                "Голосовой комментарий пока некуда переслать. "
+                f"{missing_chat_text} "
                 f"Нужно сначала зарегистрировать чат {settings.report_recipient_label} через /register_report_chat."
             )
             return "missing_report_chat"
 
         context_text = (
-            "Голосовой комментарий от врача\n"
+            f"{media_label} от врача\n"
             f"Врач: {doctor.doctor_name}\n"
             f"Тема: {task.topic or session.article_title}\n"
             f"Раздел: {section_title}\n"
@@ -141,11 +145,11 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
             await message.bot.send_message(report_chat.chat_id, context_text)
             await message.bot.copy_message(report_chat.chat_id, message.chat.id, message.message_id)
         except Exception:
-            logger.exception("Failed to forward voice comment")
-            await message.answer("Не удалось переслать голосовой комментарий редактору. Попробуйте ещё раз чуть позже.")
+            logger.exception("Failed to forward media comment")
+            await message.answer(forward_error_text)
             return "forward_failed"
 
-        await message.answer("Голосовой комментарий отправлен редактору.")
+        await message.answer(success_text)
         return "ok"
 
     def format_report_text(
@@ -763,7 +767,25 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
 
     @router.message(BotStates.viewing_section, F.voice)
     async def handle_voice_section_comment(message: Message, state: FSMContext) -> None:
-        result = await forward_voice_comment(message)
+        result = await forward_media_comment(
+            message,
+            media_label="Голосовой комментарий",
+            success_text="Голосовой комментарий отправлен редактору.",
+            missing_chat_text="Голосовой комментарий пока некуда переслать.",
+            forward_error_text="Не удалось переслать голосовой комментарий редактору. Попробуйте ещё раз чуть позже.",
+        )
+        if result == "ok":
+            await state.set_state(BotStates.viewing_section)
+
+    @router.message(BotStates.viewing_section, F.document)
+    async def handle_document_section_comment(message: Message, state: FSMContext) -> None:
+        result = await forward_media_comment(
+            message,
+            media_label="Файл с комментарием",
+            success_text="Файл отправлен редактору.",
+            missing_chat_text="Файл пока некуда переслать.",
+            forward_error_text="Не удалось переслать файл редактору. Попробуйте ещё раз чуть позже.",
+        )
         if result == "ok":
             await state.set_state(BotStates.viewing_section)
 
@@ -777,7 +799,27 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
 
     @router.message(BotStates.viewing_illustrations, F.voice)
     async def handle_voice_illustrations_comment(message: Message, state: FSMContext) -> None:
-        result = await forward_voice_comment(message, section_title_override="Иллюстрации")
+        result = await forward_media_comment(
+            message,
+            media_label="Голосовой комментарий",
+            success_text="Голосовой комментарий отправлен редактору.",
+            missing_chat_text="Голосовой комментарий пока некуда переслать.",
+            forward_error_text="Не удалось переслать голосовой комментарий редактору. Попробуйте ещё раз чуть позже.",
+            section_title_override="Иллюстрации",
+        )
+        if result == "ok":
+            await state.set_state(BotStates.viewing_illustrations)
+
+    @router.message(BotStates.viewing_illustrations, F.document)
+    async def handle_document_illustrations_comment(message: Message, state: FSMContext) -> None:
+        result = await forward_media_comment(
+            message,
+            media_label="Файл с комментарием",
+            success_text="Файл отправлен редактору.",
+            missing_chat_text="Файл пока некуда переслать.",
+            forward_error_text="Не удалось переслать файл редактору. Попробуйте ещё раз чуть позже.",
+            section_title_override="Иллюстрации",
+        )
         if result == "ok":
             await state.set_state(BotStates.viewing_illustrations)
 
