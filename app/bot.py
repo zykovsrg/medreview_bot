@@ -209,7 +209,7 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
             return
         text_lines = [
             f"Врач: {doctor.doctor_name}",
-            f"Сейчас на проверке: {len(tasks)}",
+            f"Публикаций на проверку: {len(tasks)}",
         ]
 
         if tasks:
@@ -455,7 +455,8 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
             return
         if not doctor_choices:
             await message.answer(
-                "Сейчас у Вас нет статей на проверку. Если это ошибка — напишите @zykovsrg"
+                "Сейчас у Вас нет статей на проверку. Если это ошибка — напишите @zykovsrg",
+                reply_markup=main_menu_keyboard(),
             )
             return
 
