@@ -84,7 +84,7 @@ def completed_review_keyboard(review_id: int, is_approved: bool) -> InlineKeyboa
 def illustrations_keyboard(row_number: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="К структуре", callback_data=f"outline:{row_number}")
-    builder.button(text="Завершить статью", callback_data="finish")
+    builder.button(text="Завершить проверку", callback_data="finish")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -103,7 +103,7 @@ def review_keyboard(
     if show_illustrations:
         builder.button(text="Проверить иллюстрации", callback_data=f"illustrations:{row_number}")
     builder.button(text="К структуре", callback_data=f"outline:{row_number}")
-    builder.button(text="Завершить статью", callback_data="finish")
+    builder.button(text="Завершить проверку", callback_data="finish")
     if show_illustrations:
         builder.adjust(2, 1, 1, 1)
     else:
