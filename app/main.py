@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 import sys
 from pathlib import Path
 
@@ -31,10 +32,10 @@ async def main() -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
 
-    bot = Bot(
-        settings.bot_token,
-        session=AiohttpSession(timeout=TELEGRAM_SESSION_TIMEOUT_SECONDS),
-    )
+    session = AiohttpSession(timeout=TELEGRAM_SESSION_TIMEOUT_SECONDS)
+    # Some budget hosts have flaky IPv6 routing to Telegram. Force IPv4 first.
+    session._connector_init["family"] = socket.AF_INET
+    bot = Bot(settings.bot_token, session=session)
     dispatcher = Dispatcher()
 
     storage = Storage(settings.db_path)
