@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from aiogram.utils.token import TokenValidationError, validate_token
 from dotenv import load_dotenv
 
 
@@ -21,6 +22,41 @@ def _require_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Environment variable {name} is required.")
     return value
+
+
+def _normalize_token(value: str) -> str:
+    normalized = value.strip().strip("'").strip('"')
+    if ":" not in normalized and normalized.count("=") == 1:
+        left, right = normalized.split("=", maxsplit=1)
+        if left.isdigit() and right:
+            normalized = f"{left}:{right}"
+    return normalized
+
+
+def _resolve_bot_token() -> str:
+    candidate_names = (
+        "BOT_TOKEN",
+        "TELEGRAM_BOT_TOKEN",
+        "TOKEN",
+        "API_TOKEN",
+        "BOT_API_TOKEN",
+    )
+
+    for name in candidate_names:
+        raw_value = os.getenv(name, "").strip()
+        if not raw_value:
+            continue
+        token = _normalize_token(raw_value)
+        try:
+            validate_token(token)
+            return token
+        except TokenValidationError:
+            continue
+
+    raise RuntimeError(
+        "Telegram bot token is missing or invalid. "
+        "Set one of: BOT_TOKEN, TELEGRAM_BOT_TOKEN, TOKEN, API_TOKEN, BOT_API_TOKEN."
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +109,7 @@ def load_settings() -> Settings:
 
     settings = Settings(
         google_access_mode=google_access_mode,
-        bot_token=_require_env("BOT_TOKEN"),
+        bot_token=_resolve_bot_token(),
         report_recipient_label=os.getenv("REPORT_RECIPIENT_LABEL", "@zykovsrg").strip() or "@zykovsrg",
         spreadsheet_url=_require_env("GOOGLE_SPREADSHEET_URL"),
         comments_spreadsheet_url=os.getenv("COMMENTS_SPREADSHEET_URL", "").strip() or None,
