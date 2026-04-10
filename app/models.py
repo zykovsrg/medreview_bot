@@ -36,6 +36,16 @@ class Section:
     index: int
     title: str
     body: str
+    illustrations: tuple["Illustration", ...] = ()
+
+
+@dataclass(slots=True, frozen=True)
+class Illustration:
+    content_base64: str
+    mime_type: str
+    filename: str
+    alt_title: str = ""
+    alt_description: str = ""
 
 
 @dataclass(slots=True, frozen=True)
@@ -43,6 +53,7 @@ class ArticleDocument:
     doc_id: str
     title: str
     intro: str
+    intro_illustrations: tuple[Illustration, ...]
     document_url: str
     sections: list[Section]
 

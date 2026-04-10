@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 
 from app.config import Settings
 from app.doc_parser import parse_google_document
-from app.models import ArticleDocument, ArticleTask, CommentRecord, Section, normalize_surname
+from app.models import ArticleDocument, ArticleTask, CommentRecord, Illustration, Section, normalize_surname
 
 
 SCOPES = (
@@ -75,6 +75,21 @@ class GoogleRepository:
             return Credentials.from_service_account_info(info, scopes=SCOPES)
         assert settings.google_service_account_file is not None
         return Credentials.from_service_account_file(settings.google_service_account_file, scopes=SCOPES)
+
+    @staticmethod
+    def _build_illustration(payload: dict, fallback_name: str) -> Illustration | None:
+        content_base64 = str(payload.get("contentBase64", "")).strip()
+        if not content_base64:
+            return None
+        mime_type = str(payload.get("mimeType", "")).strip() or "image/jpeg"
+        filename = str(payload.get("filename", "")).strip() or fallback_name
+        return Illustration(
+            content_base64=content_base64,
+            mime_type=mime_type,
+            filename=filename,
+            alt_title=str(payload.get("altTitle", "")).strip(),
+            alt_description=str(payload.get("altDescription", "")).strip(),
+        )
 
     def _get_all_pending_tasks(self) -> list[ArticleTask]:
         cached = self._tasks_cache.get()
@@ -198,12 +213,29 @@ class GoogleRepository:
                 doc_id=str(document_data.get("docId", doc_id)),
                 title=str(document_data.get("title", "Без названия")),
                 intro=str(document_data.get("intro", "")),
+                intro_illustrations=tuple(
+                    illustration
+                    for index, item in enumerate(document_data.get("introIllustrations", []), start=1)
+                    for illustration in [self._build_illustration(item, f"intro-illustration-{index}.jpg")]
+                    if illustration is not None
+                ),
                 document_url=document_url,
                 sections=[
                     Section(
                         index=int(section.get("index", index + 1)),
                         title=str(section.get("title", f"Раздел {index + 1}")),
                         body=str(section.get("body", "")),
+                        illustrations=tuple(
+                            illustration
+                            for image_index, image in enumerate(section.get("illustrations", []), start=1)
+                            for illustration in [
+                                self._build_illustration(
+                                    image,
+                                    f"section-{index + 1}-illustration-{image_index}.jpg",
+                                )
+                            ]
+                            if illustration is not None
+                        ),
                     )
                     for index, section in enumerate(document_data.get("sections", []))
                 ],

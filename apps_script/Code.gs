@@ -129,9 +129,11 @@ function getDocumentStructure_(documentUrl, excludedTitles) {
 
   let title = String(doc.getName() || '').trim();
   const introParts = [];
+  const introIllustrations = [];
   const sections = [];
   let currentTitle = null;
   let currentBody = [];
+  let currentIllustrations = [];
 
   function flushSection() {
     if (!currentTitle) {
@@ -140,19 +142,31 @@ function getDocumentStructure_(documentUrl, excludedTitles) {
     if (excludedMap[normalizeText_(currentTitle)]) {
       currentTitle = null;
       currentBody = [];
+      currentIllustrations = [];
       return;
     }
     sections.push({
       index: sections.length + 1,
       title: currentTitle,
       body: currentBody.filter(Boolean).join('\n\n').trim(),
+      illustrations: currentIllustrations,
     });
     currentTitle = null;
     currentBody = [];
+    currentIllustrations = [];
   }
 
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
+    if (item.type === 'IMAGE') {
+      if (!currentTitle) {
+        introIllustrations.push(item.image);
+      } else {
+        currentIllustrations.push(item.image);
+      }
+      continue;
+    }
+
     if (item.style === 'HEADING_1') {
       if (!title) {
         title = item.text;
@@ -164,6 +178,7 @@ function getDocumentStructure_(documentUrl, excludedTitles) {
       flushSection();
       currentTitle = item.text;
       currentBody = [];
+      currentIllustrations = [];
       continue;
     }
 
@@ -181,14 +196,17 @@ function getDocumentStructure_(documentUrl, excludedTitles) {
       index: 1,
       title: 'Текст статьи',
       body: introParts.filter(Boolean).join('\n\n').trim(),
+      illustrations: introIllustrations,
     });
     introParts.length = 0;
+    introIllustrations.length = 0;
   }
 
   return {
     docId: docId,
     title: title || 'Без названия',
     intro: introParts.filter(Boolean).join('\n\n').trim(),
+    introIllustrations: introIllustrations,
     sections: sections,
   };
 }
@@ -218,23 +236,29 @@ function readContainer_(container, items) {
 function readParagraph_(paragraph, items) {
   const text = String(paragraph.getText() || '').trim();
   if (!text) {
-    return;
+  } else {
+    items.push({
+      style: mapHeading_(paragraph.getHeading()),
+      text: text,
+    });
   }
-  items.push({
-    style: mapHeading_(paragraph.getHeading()),
-    text: text,
-  });
+
+  pushInlineImages_(paragraph, items);
+  pushPositionedImages_(paragraph, items);
 }
 
 function readListItem_(listItem, items) {
   const text = String(listItem.getText() || '').trim();
   if (!text) {
-    return;
+  } else {
+    items.push({
+      style: mapHeading_(listItem.getHeading()),
+      text: '• ' + text,
+    });
   }
-  items.push({
-    style: mapHeading_(listItem.getHeading()),
-    text: '• ' + text,
-  });
+
+  pushInlineImages_(listItem, items);
+  pushPositionedImages_(listItem, items);
 }
 
 function readTable_(table, items) {
@@ -254,6 +278,75 @@ function mapHeading_(heading) {
     return 'HEADING_2';
   }
   return 'NORMAL_TEXT';
+}
+
+function pushInlineImages_(container, items) {
+  const childCount = container.getNumChildren();
+  for (let index = 0; index < childCount; index += 1) {
+    const child = container.getChild(index);
+    if (child.getType() !== DocumentApp.ElementType.INLINE_IMAGE) {
+      continue;
+    }
+    const payload = buildImagePayload_(child.asInlineImage(), index + 1);
+    if (payload) {
+      items.push({
+        type: 'IMAGE',
+        image: payload,
+      });
+    }
+  }
+}
+
+function pushPositionedImages_(container, items) {
+  if (typeof container.getPositionedImages !== 'function') {
+    return;
+  }
+  const images = container.getPositionedImages();
+  for (let index = 0; index < images.length; index += 1) {
+    const payload = buildImagePayload_(images[index], index + 1);
+    if (payload) {
+      items.push({
+        type: 'IMAGE',
+        image: payload,
+      });
+    }
+  }
+}
+
+function buildImagePayload_(image, index) {
+  const blob = image.getBlob();
+  const mimeType = String(blob.getContentType() || 'image/jpeg');
+  const altTitle = typeof image.getAltTitle === 'function' ? String(image.getAltTitle() || '') : '';
+  const altDescription = typeof image.getAltDescription === 'function' ? String(image.getAltDescription() || '') : '';
+  const fileBase = sanitizeFileName_(altTitle || altDescription || ('illustration-' + index));
+  return {
+    mimeType: mimeType,
+    filename: fileBase + extensionForMimeType_(mimeType),
+    altTitle: altTitle,
+    altDescription: altDescription,
+    contentBase64: Utilities.base64Encode(blob.getBytes()),
+  };
+}
+
+function extensionForMimeType_(mimeType) {
+  if (mimeType === 'image/png') {
+    return '.png';
+  }
+  if (mimeType === 'image/webp') {
+    return '.webp';
+  }
+  if (mimeType === 'image/gif') {
+    return '.gif';
+  }
+  return '.jpg';
+}
+
+function sanitizeFileName_(value) {
+  const normalized = String(value || 'illustration')
+    .replace(/[^\wа-яА-ЯёЁ.-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+  return normalized || 'illustration';
 }
 
 function appendComment_(spreadsheetUrl, commentsSheetName, comment) {

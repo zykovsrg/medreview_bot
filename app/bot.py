@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import html
 import logging
 from datetime import datetime, timezone
@@ -8,7 +9,7 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
 from app.google_clients import GoogleRepository
 from app.keyboards import (
@@ -22,8 +23,8 @@ from app.keyboards import (
     review_keyboard,
     tasks_keyboard,
 )
+from app.models import CommentRecord, Illustration, StoredDoctor, normalize_surname
 from app.reminders import ReminderService
-from app.models import CommentRecord, StoredDoctor, normalize_surname
 from app.storage import Storage
 
 
@@ -98,6 +99,36 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
         lines.append("Ссылка на документ:")
         lines.append(document_url)
         await sender("\n".join(lines))
+
+    async def send_section_illustrations(
+        target: Message | CallbackQuery,
+        illustrations: tuple[Illustration, ...],
+        reply_markup=None,
+    ) -> None:
+        if not illustrations:
+            return
+
+        sender_message = target.message if isinstance(target, CallbackQuery) else target
+        for index, illustration in enumerate(illustrations):
+            markup = reply_markup if index == len(illustrations) - 1 else None
+            file_name = illustration.filename or f"illustration-{index + 1}.jpg"
+            file = BufferedInputFile(
+                base64.b64decode(illustration.content_base64),
+                filename=file_name,
+            )
+            try:
+                if illustration.mime_type.startswith("image/"):
+                    await sender_message.answer_photo(file, reply_markup=markup)
+                else:
+                    await sender_message.answer_document(file, reply_markup=markup)
+            except Exception:
+                logger.exception("Failed to send illustration for section")
+                if markup is not None:
+                    await sender_message.answer(
+                        "Не удалось показать иллюстрацию в Telegram, но можно открыть её в документе.",
+                        reply_markup=markup,
+                    )
+                return
 
     async def forward_media_comment(
         message: Message,
@@ -295,19 +326,28 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
         body = html.escape(section.body or "В этом разделе пока нет текста.")
         chunks = split_long_text(f"{header}{intro_block}{title}{body}")
         sender = target.message.answer if isinstance(target, CallbackQuery) else target.answer
+        reply_markup = review_keyboard(
+            row_number,
+            section_index,
+            len(document.sections),
+            show_illustrations=(section_index == len(document.sections) - 1),
+        )
+        illustrations = (
+            (*document.intro_illustrations, *section.illustrations)
+            if section_index == 0
+            else section.illustrations
+        )
 
         for chunk_index, chunk in enumerate(chunks):
-            reply_markup = (
-                review_keyboard(
-                    row_number,
-                    section_index,
-                    len(document.sections),
-                    show_illustrations=(section_index == len(document.sections) - 1),
-                )
-                if chunk_index == len(chunks) - 1
+            chunk_markup = (
+                reply_markup
+                if chunk_index == len(chunks) - 1 and not illustrations
                 else None
             )
-            await sender(chunk, reply_markup=reply_markup, parse_mode="HTML")
+            await sender(chunk, reply_markup=chunk_markup, parse_mode="HTML")
+
+        if illustrations:
+            await send_section_illustrations(target, illustrations, reply_markup=reply_markup)
 
     async def persist_comment(
         message: Message,

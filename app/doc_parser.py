@@ -96,6 +96,7 @@ def parse_google_document(
                 index=len(sections) + 1,
                 title=current_title,
                 body=section_body,
+                illustrations=(),
             )
         )
         current_title = None
@@ -132,7 +133,7 @@ def parse_google_document(
         doc_id=doc_id,
         title=title or "Без названия",
         intro="\n\n".join(part for part in intro_parts if part).strip(),
+        intro_illustrations=(),
         document_url=document_url,
         sections=sections,
     )
-
