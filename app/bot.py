@@ -16,6 +16,7 @@ from app.keyboards import (
     completed_review_keyboard,
     doctor_choice_keyboard,
     finish_status_keyboard,
+    intro_review_keyboard,
     illustrations_keyboard,
     main_menu_keyboard,
     outline_keyboard,
@@ -132,16 +133,36 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
 
     async def send_intro_block(
         target: Message | CallbackQuery,
+        row_number: int,
+        sections_total: int,
+        state: FSMContext,
         intro_text: str,
         intro_illustrations: tuple[Illustration, ...],
     ) -> None:
+        await state.set_state(BotStates.viewing_section)
+        await state.update_data(comment_context="intro", active_row_number=row_number)
         if intro_text:
             sender = target.message.answer if isinstance(target, CallbackQuery) else target.answer
-            for chunk in split_long_text(html.escape(intro_text)):
-                await sender(chunk, parse_mode="HTML")
+            chunks = split_long_text(html.escape(intro_text))
+            reply_markup = (
+                intro_review_keyboard(row_number, sections_total)
+                if not intro_illustrations and chunks
+                else None
+            )
+            for chunk_index, chunk in enumerate(chunks):
+                chunk_markup = (
+                    reply_markup
+                    if chunk_index == len(chunks) - 1 and reply_markup is not None
+                    else None
+                )
+                await sender(chunk, parse_mode="HTML", reply_markup=chunk_markup)
 
         if intro_illustrations:
-            await send_section_illustrations(target, intro_illustrations)
+            await send_section_illustrations(
+                target,
+                intro_illustrations,
+                reply_markup=intro_review_keyboard(row_number, sections_total),
+            )
 
     async def forward_media_comment(
         message: Message,
@@ -342,9 +363,6 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
             show_illustrations=(section_index == len(document.sections) - 1),
         )
 
-        if section_index == 0 and (document.intro or document.intro_illustrations):
-            await send_intro_block(target, document.intro, document.intro_illustrations)
-
         illustrations = section.illustrations
 
         for chunk_index, chunk in enumerate(chunks):
@@ -377,11 +395,16 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
             return
 
         if section_title_override is None or section_index_override is None:
-            document = repository.get_document(session.document_url)
-            current_index = max(0, min(session.current_section_index, len(document.sections) - 1))
-            section = document.sections[current_index]
-            section_index = section.index
-            section_title = section.title
+            state_data = await state.get_data()
+            if state_data.get("comment_context") == "intro":
+                section_index = 0
+                section_title = "Вводная часть"
+            else:
+                document = repository.get_document(session.document_url)
+                current_index = max(0, min(session.current_section_index, len(document.sections) - 1))
+                section = document.sections[current_index]
+                section_index = section.index
+                section_title = section.title
         else:
             section_index = section_index_override
             section_title = section_title_override
@@ -591,6 +614,29 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
             return
         row_number = int(callback.data.split(":", maxsplit=1)[1])
         await callback.answer()
+        task = repository.get_task_by_row(doctor.doctor_name, row_number)
+        if task is None:
+            await callback.message.answer("Статья больше не найдена в списке. Обновите список статей.")
+            return
+        document = repository.get_document(task.document_url)
+        storage.save_session(
+            telegram_user_id=doctor.telegram_user_id,
+            sheet_row_number=task.row_number,
+            article_id=task.article_id,
+            article_title=document.title,
+            document_url=task.document_url,
+            current_section_index=0,
+        )
+        if document.intro or document.intro_illustrations:
+            await send_intro_block(
+                callback,
+                row_number=row_number,
+                sections_total=len(document.sections),
+                state=state,
+                intro_text=document.intro,
+                intro_illustrations=document.intro_illustrations,
+            )
+            return
         await send_section(callback, doctor, row_number, section_index=0, state=state)
 
     @router.callback_query(F.data.startswith("nav:"))

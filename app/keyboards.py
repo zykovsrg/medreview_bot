@@ -89,6 +89,16 @@ def illustrations_keyboard(row_number: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def intro_review_keyboard(row_number: int, sections_total: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    if sections_total > 0:
+        builder.button(text="Далее", callback_data=f"nav:{row_number}:0")
+    builder.button(text="К структуре", callback_data=f"outline:{row_number}")
+    builder.button(text="Завершить проверку", callback_data="finish")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def review_keyboard(
     row_number: int,
     section_index: int,
