@@ -130,6 +130,19 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
                     )
                 return
 
+    async def send_intro_block(
+        target: Message | CallbackQuery,
+        intro_text: str,
+        intro_illustrations: tuple[Illustration, ...],
+    ) -> None:
+        if intro_text:
+            sender = target.message.answer if isinstance(target, CallbackQuery) else target.answer
+            for chunk in split_long_text(html.escape(intro_text)):
+                await sender(chunk, parse_mode="HTML")
+
+        if intro_illustrations:
+            await send_section_illustrations(target, intro_illustrations)
+
     async def forward_media_comment(
         message: Message,
         media_label: str,
@@ -317,14 +330,10 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
         await state.set_state(BotStates.viewing_section)
         await state.update_data(comment_context="section", active_row_number=row_number)
 
-        intro_block = ""
-        if section_index == 0 and document.intro:
-            intro_block = f"{html.escape(document.intro[:700])}\n\n"
-
         header = f"Раздел {section.index}/{len(document.sections)}\n\n"
         title = f"<b>{html.escape(section.title)}</b>\n\n"
         body = html.escape(section.body or "В этом разделе пока нет текста.")
-        chunks = split_long_text(f"{header}{intro_block}{title}{body}")
+        chunks = split_long_text(f"{header}{title}{body}")
         sender = target.message.answer if isinstance(target, CallbackQuery) else target.answer
         reply_markup = review_keyboard(
             row_number,
@@ -332,11 +341,11 @@ def create_router(repository: GoogleRepository, storage: Storage, settings, remi
             len(document.sections),
             show_illustrations=(section_index == len(document.sections) - 1),
         )
-        illustrations = (
-            (*document.intro_illustrations, *section.illustrations)
-            if section_index == 0
-            else section.illustrations
-        )
+
+        if section_index == 0 and (document.intro or document.intro_illustrations):
+            await send_intro_block(target, document.intro, document.intro_illustrations)
+
+        illustrations = section.illustrations
 
         for chunk_index, chunk in enumerate(chunks):
             chunk_markup = (
