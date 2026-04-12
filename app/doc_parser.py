@@ -13,12 +13,36 @@ def extract_tab_id(document_url: str) -> str | None:
 
 
 def _paragraph_text(paragraph: dict) -> str:
-    parts: list[str] = []
+    parts: list[tuple[str, bool]] = []
     for element in paragraph.get("elements", []):
         text_run = element.get("textRun")
         if text_run:
-            parts.append(text_run.get("content", ""))
-    text = "".join(parts).replace("\u000b", " ").strip()
+            parts.append(
+                (
+                    text_run.get("content", ""),
+                    bool(text_run.get("textStyle", {}).get("bold")),
+                )
+            )
+
+    normalized_parts: list[str] = []
+    previous_was_bold = False
+    for index, (raw_text, is_bold) in enumerate(parts):
+        text = raw_text.replace("\u000b", " ")
+        if not text:
+            continue
+        if (
+            index > 0
+            and previous_was_bold
+            and not is_bold
+            and not text.startswith((" ", "\n"))
+            and normalized_parts
+            and not normalized_parts[-1].endswith((" ", "\n"))
+        ):
+            normalized_parts.append("\n")
+        normalized_parts.append(text)
+        previous_was_bold = is_bold
+
+    text = "".join(normalized_parts).strip()
     if paragraph.get("bullet") and text:
         return f"• {text}"
     return text

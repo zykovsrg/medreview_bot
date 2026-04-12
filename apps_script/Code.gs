@@ -234,7 +234,7 @@ function readContainer_(container, items) {
 }
 
 function readParagraph_(paragraph, items) {
-  const text = String(paragraph.getText() || '').trim();
+  const text = getStyledText_(paragraph).trim();
   if (!text) {
   } else {
     items.push({
@@ -248,7 +248,7 @@ function readParagraph_(paragraph, items) {
 }
 
 function readListItem_(listItem, items) {
-  const text = String(listItem.getText() || '').trim();
+  const text = getStyledText_(listItem).trim();
   if (!text) {
   } else {
     items.push({
@@ -278,6 +278,41 @@ function mapHeading_(heading) {
     return 'HEADING_2';
   }
   return 'NORMAL_TEXT';
+}
+
+function getStyledText_(container) {
+  const textElement = container.editAsText();
+  const fullText = String(textElement.getText() || '').replace(/\u000b/g, ' ');
+  if (!fullText) {
+    return '';
+  }
+
+  const indexes = textElement.getTextAttributeIndices();
+  const parts = [];
+
+  for (let i = 0; i < indexes.length; i += 1) {
+    const start = indexes[i];
+    const end = i + 1 < indexes.length ? indexes[i + 1] : fullText.length;
+    const piece = fullText.slice(start, end);
+    if (!piece) {
+      continue;
+    }
+
+    const isBold = Boolean(textElement.isBold(start));
+    if (
+      parts.length > 0 &&
+      parts[parts.length - 1].bold &&
+      !isBold &&
+      !/^[\s\n]/.test(piece) &&
+      !/[\s\n]$/.test(parts[parts.length - 1].text)
+    ) {
+      parts.push({ text: '\n', bold: false });
+    }
+
+    parts.push({ text: piece, bold: isBold });
+  }
+
+  return parts.map((part) => part.text).join('');
 }
 
 function pushInlineImages_(container, items) {
